@@ -1,78 +1,118 @@
-import os
-from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
-from launch.substitutions import Command, LaunchConfiguration
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import Node
+from os import environ
+from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
-from ament_index_python.packages import get_package_prefix
+from launch import LaunchDescription
+from launch.actions import TimerAction
+from launch.actions import DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import Command
+from launch.substitutions import LaunchConfiguration
 from launch_ros.descriptions import ParameterValue
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    # launch parameters
+    use_sim_time = LaunchConfiguration("use_sim_time", default="True")
 
-    description_package_name = "rb1_ros2_description"
-    install_dir = get_package_prefix(description_package_name)
+    # gazebo launch description
+    path_gazebo = Path(get_package_share_directory("gazebo_ros"))
+    path_launch = path_gazebo / "launch" / "gazebo.launch.py"
 
-    # This is to find the models inside the models folder in rb1_ros2_description package
-    gazebo_models_path = os.path.join(description_package_name, 'models')
-    if 'GAZEBO_MODEL_PATH' in os.environ:
-        os.environ['GAZEBO_MODEL_PATH'] = os.environ['GAZEBO_MODEL_PATH'] + \
-            ':' + install_dir + '/share' + ':' + gazebo_models_path
-    else:
-        os.environ['GAZEBO_MODEL_PATH'] = install_dir + \
-            "/share" + ':' + gazebo_models_path
+    # package rb1_ros2_description
+    path_root = Path(get_package_share_directory("rb1_ros2_description"))
+    path_urdf = path_root / "xacro" / "rb1_ros2_base.urdf.xacro"
+    path_mesh = path_root / "meshes"
 
-    if 'GAZEBO_PLUGIN_PATH' in os.environ:
-        os.environ['GAZEBO_PLUGIN_PATH'] = os.environ['GAZEBO_PLUGIN_PATH'] + \
-            ':' + install_dir + '/lib'
-    else:
-        os.environ['GAZEBO_PLUGIN_PATH'] = install_dir + '/lib'
-
-    print("GAZEBO MODELS PATH=="+str(os.environ["GAZEBO_MODEL_PATH"]))
-    print("GAZEBO PLUGINS PATH=="+str(os.environ["GAZEBO_PLUGIN_PATH"]))
-
-    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
-
-    # Define the launch arguments for the Gazebo launch file
-    gazebo_launch_args = {
-        'verbose': 'false',
-        'pause': 'false',
-    }
-
-   # Include the Gazebo launch file with the modified launch arguments
-    gazebo = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([os.path.join(
-            get_package_share_directory('gazebo_ros'), 'launch'), '/gazebo.launch.py']),
-        launch_arguments=gazebo_launch_args.items(),
+    # gazebo path
+    environ["GAZEBO_MODEL_PATH"] += (
+        ":" + path_root.parent.as_posix() + ":" + path_mesh.as_posix()
     )
 
-    # Define the robot model files to be used
-    robot_desc_file = "rb1_ros2_base.urdf.xacro"
-    robot_desc_path = os.path.join(get_package_share_directory(
-        "rb1_ros2_description"), "xacro", robot_desc_file)
+    # parameters
+    namespace, robot_name = "", "rb1_robot"
 
-    robot_name_1 = "rb1_robot"
-
-    rsp_robot1 = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
-        namespace=robot_name_1,
-        parameters=[{'frame_prefix': robot_name_1+'/', 'use_sim_time': use_sim_time,
-                     'robot_description': ParameterValue(Command(['xacro ', robot_desc_path, ' robot_name:=', robot_name_1]), value_type=str)}],
-        output="screen"
+    # return launch
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(name="use_sim_time", default_value="True"),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(path_launch.as_posix()),
+                launch_arguments=[
+                    ("verbose", "false"),
+                    ("pause", "false")
+                ],
+            ),
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                name="robot_state_publisher",
+                namespace=namespace,
+                output="screen",
+                emulate_tty=True,
+                parameters=[
+                    {
+                        "use_sim_time": use_sim_time,
+                        "frame_prefix": robot_name + "/",
+                        "robot_description": ParameterValue(
+                            Command(
+                                [
+                                    " xacro ", path_urdf.as_posix(),
+                                    " robot_name:=", robot_name,
+                                ]
+                            ),
+                            value_type=str,
+                        ),
+                    }
+                ],
+            ),
+            Node(
+                package="gazebo_ros",
+                executable="spawn_entity.py",
+                name="spawn_entity",
+                output="screen",
+                arguments=[
+                    "-entity", robot_name,
+                    "-x", "0", "-y", "0", "-z", "0",
+                    "-R", "0", "-P", "0", "-Y", "0",
+                    "-topic", f"{namespace}/robot_description",
+                ],
+            ),
+            TimerAction(
+                period=100.0,
+                actions=[
+                    Node(
+                        package="controller_manager",
+                        executable="spawner",
+                        output="screen",
+                        arguments=[
+                            "rb1_base_controller",
+                            "--controller-manager", "/controller_manager",
+                            "--controller-manager-timeout", "60",
+                        ],
+                    ),
+                    Node(
+                        package="controller_manager",
+                        executable="spawner",
+                        output="screen",
+                        arguments=[
+                            "rb1_elevator_controllers",
+                            "--controller-manager", "/controller_manager",
+                            "--controller-manager-timeout", "60",
+                        ],
+                    ),
+                    Node(
+                        package="controller_manager",
+                        executable="spawner",
+                        output="screen",
+                        arguments=[
+                            "joint_state_broadcaster",
+                            "--controller-manager", "/controller_manager",
+                            "--controller-manager-timeout", "60",
+                        ],
+                    ),
+                ]
+            )
+        ]
     )
-
-    spawn_robot1 = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
-        arguments=['-entity', robot_name_1, '-x', '0.0', '-y', '0.0', '-z', '0.0',
-                   '-topic', robot_name_1+'/robot_description']
-    )
-
-    return LaunchDescription([
-        gazebo,
-        rsp_robot1,
-        spawn_robot1,
-    ])
