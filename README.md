@@ -1,6 +1,6 @@
 # RB1 Robot
 
-The package adapts from [RB-1](https://github.com/RobotnikAutomation/rb1_base_sim) official repository to create a working robot using the URDF, defining all the required links & joints, adding required actuators and sensors, also create launch files to spawn robot in gazebo environment (world) along with implement ROS2 control system.
+The package adapts from [RB1](https://github.com/RobotnikAutomation/rb1_base_sim) official repository to create a working robot using the URDF, defining all the required links & joints, adding required actuators and sensors, also create launch files to spawn robot in gazebo environment (world) along with implement ROS2 control system.
 
 ![ros](https://img.shields.io/badge/ROS2-humble-red) ![cpp](https://img.shields.io/badge/cpp-11+-blue) ![python](https://img.shields.io/badge/python-3.8+-blue)
 
